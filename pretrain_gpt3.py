@@ -460,7 +460,7 @@ def train(model, optimizer, lr_scheduler,
         timers('data loader').stop()
 
         if train_start and is_master:
-            batch_text = f"\n\Iteration {iteration} start sample: {tokenizer.decode(sample[0, :200])}"
+            batch_text = f"\nIteration {iteration} start sample: {tokenizer.decode(sample[0, :200])}"
             tb_writer.add_text('train_start', batch_text, iteration)
 
         lm_loss, skipped_iter = train_step(sample,
@@ -672,7 +672,7 @@ def set_random_seed(seed):
 
 
 def get_train_val_test_data(args):
-    """Load the data on rank zero and boradcast number of tokens to all GPUS."""
+    """Load the data on rank zero and broadcast number of tokens to all GPUS."""
 
     (train_data, val_data, test_data) = (None, None, None)
 

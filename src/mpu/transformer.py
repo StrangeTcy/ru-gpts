@@ -333,7 +333,7 @@ def scaled_init_method(sigma, num_layers):
 class GPT3ParallelTransformer(torch.nn.Module):
     """GPT-3 transformer.
 
-    This module takes input from embedding layer and it's output can
+    This module takes input from embedding layer and its output can
     be used directly by a logit layer. It consists of L (num-layers)
     blocks of:
         layer norm
@@ -355,7 +355,7 @@ class GPT3ParallelTransformer(torch.nn.Module):
                              after self attention and final output.
         checkpoint_activations: if True, checkpoint activations.
         checkpoint_num_layers: number of layers to checkpoint. This
-                               is basically the chunk size in checkpoitning.
+                               is basically the chunk size in checkpointing.
         layernorm_epsilon: epsilon used in layernorm to avoid
                            division by zero.
         init_method_std: standard deviation of the init method which has
