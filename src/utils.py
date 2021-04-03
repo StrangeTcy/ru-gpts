@@ -199,6 +199,7 @@ def save_checkpoint(iteration, model, optimizer,
                     lr_scheduler, args, deepspeed=False):
     """Save a model checkpoint."""
     if deepspeed:
+        print ("saving deepspeed checkpoint")
         save_ds_checkpoint(iteration, model, args)
     else:
         # Only rank zer0 of the data parallel writes to the disk.
@@ -404,6 +405,8 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
     dst2src=True loads parameters from our models into huggingface's.
     ^dst2src is still untested
     """
+    print (f"Loading weights from {src} to {dst}")
+
     conv_layer = 'Conv1D' in str(type(src))
     for n, p in src.named_parameters():
         if dst2src:
@@ -449,6 +452,7 @@ def move_weights(our, oai, dst2src=False, double_pos_embeddings=False):
     """
     #    while isinstance(our, (torchDDP, model.distributed.DistributedDataParallel, FP16_Module)):
     #        our=our.module
+    print (f"Moving weights from {oai} to {our}")
     transformer_model = oai.transformer
     load_weights(transformer_model.ln_f, our.transformer.final_layernorm, dst2src)
     load_weights(transformer_model.wte, our.word_embeddings, dst2src)
@@ -459,6 +463,10 @@ def move_weights(our, oai, dst2src=False, double_pos_embeddings=False):
 
 
 def load_huggingface_model(model, path, double_pos_embeddings):
+    print (f"load_huggingface_model has received model {model}, \
+        path {path}, \
+        and double_pos_embeddings {double_pos_embeddings}")
+    
     from transformers import GPT2LMHeadModel
     print('Load huggingface model from', path, ('with pos emb doubling' if double_pos_embeddings else ''))
     model2fill = model
@@ -471,9 +479,10 @@ def load_huggingface_model(model, path, double_pos_embeddings):
         model2fill.load_state_dict(checkpoint)
     else:
         h_model = GPT2LMHeadModel.from_pretrained(path)
+        print ("moving weights...")
         move_weights(model2fill, h_model, double_pos_embeddings)
 
-    print('Loaded huggingface model', type(model))
+    print('Loaded huggingface model ', type(model))
     return model
 
 
@@ -495,6 +504,7 @@ def export_to_huggingface_model(model, path):
 
 
 def get_deepspeed_config(args):
+    print (f"get_deepspeed_config has received args {args}")
     if hasattr(args, 'deepspeed_config') and args.deepspeed_config:
         from deepspeed import DeepSpeedConfig
         return DeepSpeedConfig(args.deepspeed_config)
@@ -503,6 +513,7 @@ def get_deepspeed_config(args):
 
 
 def get_sparse_attention_config(args, num_heads):
+    print (f"get_sparse_attention_config has received args {args} and num_heads {num_heads}")
     ds_config = get_deepspeed_config(args)
     if hasattr(ds_config, 'sparse_attention') and ds_config.sparse_attention:
         sa_config = ds_config.sparse_attention

@@ -327,6 +327,7 @@ def get_args():
     if DEEPSPEED_WRAP:
         parser = DEEPSPEED_WRAP.deepspeed.add_config_arguments(parser)
 
+    print ("in argument.get_args, parsing args...")    
     args = parser.parse_args()
 
     if not args.train_data and not args.train_data_path:

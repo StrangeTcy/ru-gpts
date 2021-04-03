@@ -57,6 +57,7 @@ def get_model(args):
             sum([p.nelement() for p in model.parameters()])), flush=True)
 
     # GPU allocation.
+    print (f"placing model on GPU:{torch.cuda.current_device()}")
     model.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
@@ -64,6 +65,7 @@ def get_model(args):
         model = FP16_Module(model)
 
     # Wrap model for distributed training.
+    print ("Wrapping model for DDP")
     model = DDP(model)
 
     return model
@@ -97,6 +99,7 @@ def setup_model(args):
 
 
 def generate_samples(model, tokenizer, args):
+    print ("Generating samples...")
     model.eval()
     with torch.no_grad():
         while True:

@@ -41,12 +41,37 @@ from src.utils import (
     get_sparse_attention_config, top_k_logits, DEEPSPEED_WRAP
 )
 
+# I'll just leave it here for now
+# We'll try to import WandB to have a great view of our training,
+# possibly better than in TensorBoard
+try:
+    import wandb
+
+    wandb.ensure_configured()
+    if wandb.api.api_key is None:
+        _has_wandb = False
+        wandb.termwarn("W&B is installed but you haven't logged in.  \nRun `wandb login` or set the WANDB_API_KEY env variable.")
+    else:
+        _has_wandb = False if os.getenv("WANDB_DISABLED") else True
+except ImportError:
+    _has_wandb = False
+
+
+def is_wandb_available():
+    return _has_wandb
+
+
+
+
 # Flag to use Pytorch ddp which uses overlapping communication and computation.
 USE_TORCH_DDP = False
 if USE_TORCH_DDP:
     from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 else:
     from src.model import DistributedDataParallel as DDP
+
+
+
 
 
 def get_model(args):
@@ -84,21 +109,27 @@ def get_model(args):
 
     # To prevent OOM for model sizes that cannot fit in GPU memory in full precision
     if DEEPSPEED_WRAP and args.deepspeed and args.fp16:
+        print ("Casting a model to half-precision")
         model.half()
 
     # GPU allocation.
+    print (f"Allocating model to GPU {torch.cuda.current_device()}")
     model.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
     if args.fp16:
+        print ("fp16 converting")
         model = FP16_Module(model)
 
     # Wrap model for distributed training.
+    print ("Getting the model ready for distributed training...")
     if USE_TORCH_DDP:
+        print ("Using torch_ddp")
         i = torch.cuda.current_device()
         model = DDP(model, device_ids=[i], output_device=i,
                     process_group=mpu.get_data_parallel_group())
     else:
+        print ("Using Special Sberbank Magic DDP!")
         model = DDP(model)
 
     return model
@@ -106,6 +137,9 @@ def get_model(args):
 
 def get_optimizer(model, args):
     """Set up the optimizer."""
+
+    print (f"Ok, now that we have model {model} and args {args}, we're getting an optimizer")
+
 
     # Build parameter groups (weight decay and non-decay).
     while isinstance(model, (DDP, FP16_Module)):
@@ -138,6 +172,7 @@ def get_optimizer(model, args):
 
     # Wrap into fp16 optimizer.
     if args.fp16:
+        print ("Wrapping into fp16")
         optimizer = FP16_Optimizer(optimizer,
                                    static_loss_scale=args.loss_scale,
                                    dynamic_loss_scale=args.dynamic_loss_scale,
@@ -160,6 +195,7 @@ def get_learning_rate_scheduler(optimizer, args):
     num_iters = max(1, num_iters)
     init_step = -1
     warmup_iter = args.warmup * num_iters
+    print ("Creating an AnnealingLR scheduler")
     lr_scheduler = AnnealingLR(optimizer,
                                start_lr=args.lr,
                                warmup_iter=warmup_iter,
@@ -174,8 +210,13 @@ def get_learning_rate_scheduler(optimizer, args):
 def setup_model_and_optimizer(args):
     """Setup model and optimizer."""
 
+    print (f"setup_model_and_optimizer has received args {args}")
+
+    print ("Getting model")
     model = get_model(args)
+    print ("Getting optimizer")
     optimizer = get_optimizer(model, args)
+    print ("Getting LR scheduler")
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
 
     if DEEPSPEED_WRAP and args.deepspeed:
@@ -434,6 +475,9 @@ def train_step(sample, model, optimizer, lr_scheduler,
 def train(model, optimizer, lr_scheduler,
           train_data_iterator, val_data, timers, args, tokenizer):
     """Train the model."""
+    print ("Training the model...")
+    input (f"We'll be logging stuff to {args.logging_dir}")
+
 
     # Turn on training mode which enables dropout.
     model.train()
@@ -508,6 +552,7 @@ def train(model, optimizer, lr_scheduler,
 
             if ppl < 3:
                 # generate only when model is relatively good
+                print ("Our perplexity is <3, so we're running an evaluation")
                 prefix = 'Бразильские ученые открыли редкий вид карликовых единорогов, обитающих на западе Ютландии'
                 model.eval()
                 with torch.no_grad():
@@ -528,9 +573,11 @@ def train(model, optimizer, lr_scheduler,
                            normalizer=args.log_interval)
         # Checkpointing
         if args.save and args.save_interval and iteration % args.save_interval == 0:
+            print ("Saving checkpoint...")
             save_checkpoint(iteration, model, optimizer, lr_scheduler, args, deepspeed=DEEPSPEED_WRAP and args.deepspeed)
 
         # Evaluation
+        print ("Evaluating...")
         if args.eval_interval and iteration % args.eval_interval == 0 and args.do_valid:
             prefix = 'iteration {}'.format(iteration)
             val_loss, val_ppl = evaluate_and_print_results(
@@ -554,7 +601,13 @@ def train(model, optimizer, lr_scheduler,
 def evaluate(data_iterator, model, args, timers, verbose=False):
     """Evaluation."""
 
+    print (f"evaluate has received data_iterator {data_iterator}, \
+        model {model}, \
+        args {args} \
+        and timers {timers}")
+
     # Turn on evaluation mode which disables dropout.
+    print ("Running model.evaluate()...")
     model.eval()
 
     total_lm_loss = 0
@@ -586,6 +639,7 @@ def evaluate(data_iterator, model, args, timers, verbose=False):
             total_lm_loss += lm_loss.data.detach().float().item()
 
     # Move model back to the train mode.
+    print ("Setting model back to train mode...")
     model.train()
 
     total_lm_loss /= eval_len
@@ -595,6 +649,13 @@ def evaluate(data_iterator, model, args, timers, verbose=False):
 def evaluate_and_print_results(prefix, data_iterator, model,
                                args, timers, verbose=False):
     """Helper function to evaluate and dump results on screen."""
+
+    print (f"evaluate_and_print_results has received prefix {prefix}, \
+        data_iterator {data_iterator}, \
+        model {model}, \
+        args {args} \
+        and timers {timers}")
+
     if args.load_tag:
         prefix = 'checkpoint {}'.format(args.load_tag)
     lm_loss = evaluate(data_iterator, model, args, timers, verbose)
@@ -627,6 +688,7 @@ def evaluate_and_print_results(prefix, data_iterator, model,
 
 
 def set_deepspeed_activation_checkpointing(args):
+    print (f"set_deepspeed_activation_checkpointing has received args {args} \n and is now setting things up...")
     DEEPSPEED_WRAP.deepspeed.checkpointing.configure(mpu, deepspeed_config=args.deepspeed_config,
                                                      num_checkpoints=args.num_layers)
     mpu.checkpoint = DEEPSPEED_WRAP.deepspeed.checkpointing.checkpoint
@@ -637,12 +699,15 @@ def set_deepspeed_activation_checkpointing(args):
 def initialize_distributed(args):
     """Initialize torch.distributed."""
 
+    print (f"initialize_distributed has received args {args}")
+
     # Manually set the device ids.
     device = args.rank % torch.cuda.device_count()
     if args.local_rank is not None:
         device = args.local_rank
     torch.cuda.set_device(device)
     # Call the init process
+    print ("initialize_distributed is calling the init process...")
     init_method = 'tcp://'
     master_ip = os.getenv('MASTER_ADDR', 'localhost')
     master_port = os.getenv('MASTER_PORT', '6000')
@@ -658,6 +723,7 @@ def initialize_distributed(args):
     # Optional DeepSpeed Activation Checkpointing Features
     #
     if DEEPSPEED_WRAP and args.deepspeed and args.deepspeed_activation_checkpointing:
+        print ("initialize_distributed is setting DeepSpeed activation checkpointing...")
         set_deepspeed_activation_checkpointing(args)
 
 
@@ -674,10 +740,13 @@ def set_random_seed(seed):
 def get_train_val_test_data(args):
     """Load the data on rank zero and broadcast number of tokens to all GPUS."""
 
+    print (f"get_train_val_test_data has received args {args}")
+
     (train_data, val_data, test_data) = (None, None, None)
 
     # Data loader only on rank 0 of each model parallel group.
     if mpu.get_model_parallel_rank() == 0:
+        print ("We're on rank 0. Running make_gpt3_dataloaders")
         (train_data, val_data, test_data), num_tokens, eod_token, tokenizer = make_gpt3_dataloaders(args)
         before = num_tokens
         after = before
@@ -703,10 +772,22 @@ def get_train_val_test_data(args):
     args.do_valid = token_counts[3].item()
     args.do_test = token_counts[4].item()
 
+    print ("Returning train_data, test_data and a tokenizer")
     return train_data, val_data, test_data, num_tokens, eod_token, tokenizer
 
 
 def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, temperature=1.0, top_k=0, top_p=0.9):
+    
+    print (f"generate was called with model {model},\
+            tokenizer {tokenizer},\
+             raw_text {raw_text}, \
+             out_seq_length = {out_seq_length}, \
+             seq_length = {seq_length}, \
+             temperature = {temperature}, \
+             top_k = {top_k}, \
+             and top_p = {top_p}")
+
+    print ("Tokenizing raw_text...")
     context_tokens = tokenizer(raw_text)['input_ids']
     context_length = len(context_tokens)
     pad_id = tokenizer.encoder['<pad>']
@@ -716,6 +797,7 @@ def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, tem
     context_tokens_tensor = torch.cuda.LongTensor(context_tokens)
     context_length_tensor = torch.cuda.LongTensor([context_length])
 
+    print ("Broadcasting tensors...")
     torch.distributed.broadcast(context_length_tensor, mpu.get_model_parallel_src_rank(),
                                 group=mpu.get_model_parallel_group())
     torch.distributed.broadcast(context_tokens_tensor, mpu.get_model_parallel_src_rank(),
@@ -731,6 +813,7 @@ def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, tem
     counter = 0
     start_context_length = context_length
 
+    print ("Getting logits from our model...")
     while counter < (start_context_length + out_seq_length):
         logits = model(tokens, position_ids, attention_mask)
         logits = logits[:, context_length - 1, :] / temperature
@@ -744,14 +827,18 @@ def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, tem
         counter += 1
 
         output_tokens_list = tokens.view(-1).tolist()
+        print ("Decoding tokens...")
         decode_tokens = tokenizer.decode(output_tokens_list)
         decode_tokens = decode_tokens[:decode_tokens.find("<|endoftext|>")]
         token_end = decode_tokens.find("<|endoftext|>")
         if token_end != -1:
             break
 
+    print ("Getting tokens...")        
     output_tokens_list = tokens.view(-1).tolist()
+    print ("Decoding tokens...")
     decode_tokens = tokenizer.decode(output_tokens_list)
+    print ("Returning results...")
     return decode_tokens[:decode_tokens.find("<|endoftext|>")]
 
 
@@ -762,27 +849,33 @@ def main():
     torch.backends.cudnn.enabled = False
 
     # Timer.
+    print ("in main, setting up Timers")
     timers = Timers()
 
     # Arguments.
+    print ("in main, getting args")
     args = get_args()
 
     #     if args.load_huggingface:
     #         args.make_vocab_size_divisible_by = 1
 
     # Pytorch distributed.
+    print ("in main, initializing distributed")
     initialize_distributed(args)
     if torch.distributed.get_rank() == 0:
         print('Pretrain GPT3 model')
         print_args(args)
 
     # Random seeds for reproducability.
+    print ("in main, setting random seeds")
     set_random_seed(args.seed)
 
     # Data stuff.
+    print ("in main, running get_train_val_test_data")
     train_data, val_data, test_data, args.vocab_size, args.eod_token, tokenizer = get_train_val_test_data(args)
 
     # Model, optimizer, and learning rate.
+    print ("In main, setting up model & optimizer...")
     model, optimizer, lr_scheduler = setup_model_and_optimizer(args)
 
     # Resume data loader if necessary.
@@ -816,10 +909,12 @@ def main():
                                            model, args, timers, False)
 
     if args.save and iteration != 0:
+        print ("Saving checkpoint...")
         save_checkpoint(iteration, model, optimizer, lr_scheduler, args, deepspeed=DEEPSPEED_WRAP and args.deepspeed)
 
     if args.do_test:
         # Run on test data.
+        print ("Doing a test...")
         prefix = 'the end of training for test data'
         evaluate_and_print_results(prefix, iter(test_data) if test_data else None,
                                    model, args, timers, True)
