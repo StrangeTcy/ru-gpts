@@ -19,7 +19,8 @@ import os
 import time
 
 import torch
-from transformers.tokenization_gpt2 import GPT2Tokenizer
+# from transformers.tokenization_gpt2 import GPT2Tokenizer
+from transformers import GPT2Tokenizer
 
 from src import mpu
 from src.arguments import get_args
