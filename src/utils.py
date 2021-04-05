@@ -418,9 +418,14 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
                 mid = p.size(0) // 2
                 p[mid:, :] = p[:mid, :]  # copy first half of position embedings to last
             data = p.data
+            print (f"load_weights has data of shape {data.shape}")
             load = dst._parameters[n].data
+            print (f"load_weights has load of shape {load.shape}")
         if conv_layer and 'weight' in n:
+            print ("Dealing with conv_layer with weights")
             data = data.t().contiguous()
+            print (f"load_weights has contiguous data of shape {data.shape}")
+        print ("load_weights is loading data to load via copy_ ...")
         load.copy_(data)
 
 
