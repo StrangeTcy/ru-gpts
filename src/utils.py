@@ -407,7 +407,7 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
     dst2src=True loads parameters from our models into huggingface's.
     ^dst2src is still untested
     """
-    print (f"Loading weights from {src} to {dst}")
+    print (f"Loading weights from {src} \n>>>>>>>>>>>>>>>>\n  to \n>>>>>>>>>>>>>>>>\n  {dst}")
 
     conv_layer = 'Conv1D' in str(type(src))
     for n, p in tqdm(src.named_parameters()):
