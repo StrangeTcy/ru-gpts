@@ -70,6 +70,7 @@ class GPT3Model(torch.nn.Module):
         init_method = init_method_normal(std=0.02)
 
         # Word embeddings (parallel).
+        print (f"in GPT3Model.__init__ we're making a VocabParallelEmbedding with vocab_size {vocav_size} and hidden_size {hidden_size}")
         self.word_embeddings = mpu.VocabParallelEmbedding(
             vocab_size, hidden_size, init_method=init_method)
 
