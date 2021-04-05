@@ -476,7 +476,8 @@ def train(model, optimizer, lr_scheduler,
           train_data_iterator, val_data, timers, args, tokenizer):
     """Train the model."""
     print ("Training the model...")
-    input (f"We'll be logging stuff to {args.logging_dir}")
+#     input (f"We'll be logging stuff to {args.logging_dir}")
+    print (f"We'll be logging stuff to {args.logging_dir}")
 
 
     # Turn on training mode which enables dropout.
