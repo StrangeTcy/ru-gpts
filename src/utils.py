@@ -29,6 +29,8 @@ from src.model import DistributedDataParallel as DDP
 import os
 from src.download_utils import download_model_files
 
+from tqdm import tqdm
+
 
 class DeepSpeedImportWrap(object):
     def __init__(self):
@@ -408,7 +410,7 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
     print (f"Loading weights from {src} to {dst}")
 
     conv_layer = 'Conv1D' in str(type(src))
-    for n, p in src.named_parameters():
+    for n, p in tqdm(src.named_parameters()):
         if dst2src:
             data = dst._parameters[n].data
             load = p.data
@@ -417,6 +419,7 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
                 print('Double pos embeddings')
                 mid = p.size(0) // 2
                 p[mid:, :] = p[:mid, :]  # copy first half of position embedings to last
+            print (f"loading weights for {n}")
             data = p.data
             print (f"load_weights has data of shape {data.shape}")
             load = dst._parameters[n].data
