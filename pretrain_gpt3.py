@@ -549,8 +549,10 @@ def train(model, optimizer, lr_scheduler,
 #                 lscale = optimizer.cur_scale if DEEPSPEED_WRAP and args.deepspeed else optimizer.loss_scale
                 if DEEPSPEED_WRAP and args.deepspeed:
                     print ("We're using DEEPSPEED_WRAP and args.deepspeed AND args.fp16, which is redundant")
-                    lscale = optimizer.loss_scale
-                else:
+#                     lscale = optimizer.loss_scale
+                    print (f"We have loss_scale {args.loss_scale}. It's probably `None`, so we're using dynamic loss scale. \n But we have to log something, so lscale is now 1")
+                    lscale = 1.0
+            else:
                     lscale = optimizer.cur_scale
                 log_string += ' loss scale {:.1f} |'.format(lscale)
                 scalars['lscale'] = lscale
