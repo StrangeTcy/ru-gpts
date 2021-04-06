@@ -546,7 +546,12 @@ def train(model, optimizer, lr_scheduler,
                 'Speed/seen_tokens': iteration * (tokens / args.log_interval)
             }
             if args.fp16:
-                lscale = optimizer.cur_scale if DEEPSPEED_WRAP and args.deepspeed else optimizer.loss_scale
+#                 lscale = optimizer.cur_scale if DEEPSPEED_WRAP and args.deepspeed else optimizer.loss_scale
+                if DEEPSPEED_WRAP and args.deepspeed:
+                    print ("We're using DEEPSPEED_WRAP and args.deepspeed AND args.fp16, which is redundant")
+                    lscale = optimizer.loss_scale
+                else:
+                    lscale = optimizer.cur_scale
                 log_string += ' loss scale {:.1f} |'.format(lscale)
                 scalars['lscale'] = lscale
             print_rank_0(log_string)
