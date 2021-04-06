@@ -334,7 +334,7 @@ def get_batch(data, args, timers):
         print ("Halfing the attention mask...")
         attention_mask = attention_mask.half()
 
-    print (f"get_btach will return tokens {tokens} and labels {labels}")    
+    print (f"get_batch will return tokens {tokens} and labels {labels}")    
         
     return tokens, labels, loss_mask, attention_mask, position_ids
 
@@ -348,6 +348,7 @@ def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(sample, args, timers)
 
     # Forward model.
+    print (f"sending tokens {tokens}, \n position_ids {position_ids} \n and attention_mask {attention_mask}")
     output = model(tokens, position_ids, attention_mask)
     print (f"Now we have output {output}")
 
