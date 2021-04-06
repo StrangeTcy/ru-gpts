@@ -313,7 +313,7 @@ def get_batch(data, args, timers):
     print (f"get_batch has received data {data}")
     
     # Broadcast data.
-    print ("Calling magic ,ethod mpu.broadcast_data")
+    print ("Calling magic method mpu.broadcast_data")
     data_b = mpu.broadcast_data(['text'], {'text': data}, torch.int64)
 
     # Unpack.
