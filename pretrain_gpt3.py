@@ -520,6 +520,7 @@ def train(model, optimizer, lr_scheduler,
         train_start = False
 
         # Update losses.
+        print ("Updating losses")
         total_lm_loss += lm_loss.data.detach().float()
 
         # Logging.
@@ -552,7 +553,7 @@ def train(model, optimizer, lr_scheduler,
 #                     lscale = optimizer.loss_scale
                     print (f"We have loss_scale {args.loss_scale}. It's probably `None`, so we're using dynamic loss scale. \n But we have to log something, so lscale is now 1")
                     lscale = 1.0
-            else:
+                else:
                     lscale = optimizer.cur_scale
                 log_string += ' loss scale {:.1f} |'.format(lscale)
                 scalars['lscale'] = lscale
@@ -923,7 +924,7 @@ def main():
                                            model, args, timers, False)
 
     if args.save and iteration != 0:
-        print ("Saving checkpoint...")
+        print ("\n++++++++++++\nSaving checkpoint...\n++++++++++++\n")
         save_checkpoint(iteration, model, optimizer, lr_scheduler, args, deepspeed=DEEPSPEED_WRAP and args.deepspeed)
 
     if args.do_test:
