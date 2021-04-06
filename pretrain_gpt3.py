@@ -162,12 +162,14 @@ def get_optimizer(model, args):
                                        lr=args.lr, weight_decay=args.weight_decay)
     else:
         # Use FusedAdam.
+        print ("For now, we're choosing FusedAdam as an optimizer")
         optimizer = Adam(param_groups,
                          lr=args.lr, weight_decay=args.weight_decay)
 
     print(f'Optimizer = {optimizer.__class__.__name__}')
     if DEEPSPEED_WRAP and args.deepspeed:
         # fp16 wrapper is not required for DeepSpeed.
+        print (f"We have DEEPSPEE_WRAP and args.deepspeed, so we're NOT wrapping our optimizer {optimizer} in fp16 and just returning it as is")
         return optimizer
 
     # Wrap into fp16 optimizer.
@@ -754,6 +756,10 @@ def get_train_val_test_data(args):
         multiple = args.make_vocab_size_divisible_by * mpu.get_model_parallel_world_size()
         while (after % multiple) != 0:
             after += 1
+        available_gpus = [torch.cuda.device(i) for i in range(torch.cuda.device_count())]
+        if len(available_gpus) == 1:
+            print ("We're working with a single GPU, so let's ignore hese before\after shenanigans")
+            after = before
         print_rank_0(
             '> padded vocab (size: {}) with {} dummy tokens (new size: {})'.format(before, after - before, after))
         print_rank_0('> end-of-document token: {}'.format(eod_token))
