@@ -81,11 +81,15 @@ class _CopyToModelParallelRegion(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input_):
+        print (f"mpu.mappings. _CopyToModelParallelRegion.forward was called with ctx {ctx} and input_ {input_}")
         return input_
 
     @staticmethod
     def backward(ctx, grad_output):
-        return _reduce(grad_output)
+        print (f"mpu.mappings. _CopyToModelParallelRegion.backward was called with ctx {ctx} and grad_output {grad_output}")
+        red_output = _reduce(grad_output)
+        print (f"returning reduced output {red_output}")
+        return red_output
 
 
 class _ReduceFromModelParallelRegion(torch.autograd.Function):
