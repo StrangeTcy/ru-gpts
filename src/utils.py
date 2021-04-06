@@ -179,6 +179,7 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False, zero=False):
 
 
 def ensure_directory_exists(filename):
+    print (f"ensure_directory_exists got filename {filename}")
     dirname = os.path.dirname(filename)
     if not os.path.exists(dirname):
         os.makedirs(dirname)
@@ -204,6 +205,7 @@ def save_checkpoint(iteration, model, optimizer,
         print ("saving deepspeed checkpoint")
         save_ds_checkpoint(iteration, model, args)
     else:
+        print ("Saving a non-deepspeed checkpoint")
         # Only rank zer0 of the data parallel writes to the disk.
         if isinstance(model, torchDDP):
             model = model.module
@@ -249,7 +251,7 @@ def save_checkpoint(iteration, model, optimizer,
 
 def save_ds_checkpoint(iteration, model, args):
     """Save a model checkpoint."""
-
+    print (f"Saving a deepspeed checkpoint to {args.save}")
     sd = {}
     sd['iteration'] = iteration
     # rng states.
