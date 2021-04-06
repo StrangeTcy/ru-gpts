@@ -115,6 +115,7 @@ class GPT3Model(torch.nn.Module):
         # Transformer.
         print ("Getting transformer outputs")
         transformer_output = self.transformer(embeddings, attention_mask)
+        print (f"And now our transformer_output is {transformer_output}")
 
         # Parallel logits.
         print ("Magic: copying to model parallel region")
