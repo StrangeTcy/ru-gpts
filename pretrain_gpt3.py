@@ -334,7 +334,9 @@ def get_batch(data, args, timers):
 def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb_writer=None):
     """Forward step."""
 
+    print (f"forward_step has received sample {sample}")
     # Get the batch.
+    print ("Getting batch...")
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(sample, args, timers)
 
     # Forward model.
@@ -366,7 +368,9 @@ def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb
     #             print(f"Exception during nan/inf logging: {e}")
 
     loss_mask = loss_mask.view(-1)
+    print ("Summing up loss...")
     loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
+    print (f"And now we'll return loss {loss}")
 
     return loss
 
@@ -374,6 +378,7 @@ def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb
 def backward_step(optimizer, model, lm_loss, args, timers):
     """Backward step."""
 
+    print (f"backward_step has received loss {lm_loss}")    
     # Total loss.
     loss = lm_loss
 
@@ -395,6 +400,7 @@ def backward_step(optimizer, model, lm_loss, args, timers):
     if DEEPSPEED_WRAP and args.deepspeed:
         # DeepSpeed backward propagation already addressed all reduce communication.
         # Reset the timer to avoid breaking timer logs below.
+        print ("DeepSpeed allreducing...")
         timers('allreduce').reset()
     else:
         torch.distributed.all_reduce(reduced_losses.data)
@@ -419,6 +425,8 @@ def backward_step(optimizer, model, lm_loss, args, timers):
             else:
                 optimizer.clip_master_grads(args.clip_grad)
 
+    print (f"We're about to return reduced loss {lm_loss_reduced}")           
+                
     return lm_loss_reduced
 
 
@@ -444,8 +452,15 @@ def train_step(sample, model, optimizer, lr_scheduler,
                args, timers, tokenizer, iteration, tb_writer):
     """Single training step."""
 
+    print ("We're taking a train step")
+    print (f"with sample {sample}")
+#     ,\
+#             model {model}, \
+#             optimizer, lr_scheduler,
+#                args, timers, tokenizer, iteration, tb_writer")
     # Forward model for one step.
     timers('forward').start()
+    print ("We're taking a forward step...")
     lm_loss = forward_step(sample, model, args, timers, tokenizer, iteration, tb_writer)
     timers('forward').stop()
 
@@ -453,6 +468,7 @@ def train_step(sample, model, optimizer, lr_scheduler,
 
     # Calculate gradients, reduce across processes, and clip.
     timers('backward').start()
+    print ("Now we're taking a backward step...")
     lm_loss_reduced = backward_step(optimizer, model, lm_loss, args, timers)
     timers('backward').stop()
 
@@ -460,12 +476,15 @@ def train_step(sample, model, optimizer, lr_scheduler,
     skipped_iter = 0
     timers('optimizer').start()
     if DEEPSPEED_WRAP and args.deepspeed:
+        print ("We're using DeepSpeed and so updating our cool optimizer")
         model.step()
     else:
+        print ("We're NOT using DeepSpeed, but we're still updating our optimizer")
         optimizer.step()
 
         # Update learning rate.
         if not (args.fp16 and optimizer.overflow):
+            print ("We're taking an LR Scheduler step...")
             lr_scheduler.step()
         else:
             skipped_iter = 1
@@ -487,6 +506,7 @@ def train(model, optimizer, lr_scheduler,
 
     # Tracking loss.
     total_lm_loss = 0.0
+    print (f"We haven't started training yet, so our total_lm_loss should be 0.0. \n And it actually is {total_lm_loss}")
 
     # Iterations.
     iteration = args.iteration
@@ -522,9 +542,12 @@ def train(model, optimizer, lr_scheduler,
         # Update losses.
         print ("Updating losses")
         total_lm_loss += lm_loss.data.detach().float()
+        print (f"And now we have total_lm_loss {total_lm_loss}")
+        print (f"We also have log interval {args.log_interval}. We'll soon be dividing one by the other")
 
         # Logging.
         if is_master and iteration % args.log_interval == 0:
+            print ("We are master (is_master was True)")
             learning_rate = optimizer.param_groups[0]['lr']
             avg_lm_loss = total_lm_loss.item() / args.log_interval
             ppl = math.exp(avg_lm_loss)
