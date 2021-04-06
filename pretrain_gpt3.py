@@ -309,16 +309,21 @@ def get_batch(data, args, timers):
     to the seq_len dimension in the LSTM. A Variable representing an appropriate
     shard reset mask of the same dimensions is also returned.
     """
-
+    
+    print (f"get_batch has received data {data}")
+    
     # Broadcast data.
+    print ("Calling magic ,ethod mpu.broadcast_data")
     data_b = mpu.broadcast_data(['text'], {'text': data}, torch.int64)
 
     # Unpack.
+    print ("Unpacking...")
     tokens_ = data_b['text'].long()
     labels = tokens_.contiguous()
     tokens = tokens_.contiguous()
 
     # Get the masks and postition ids.
+    print ("Getting masks and postition ids")
     attention_mask, loss_mask, position_ids = get_masks_and_position_ids(
         tokens,
         args.eod_token,
@@ -326,8 +331,11 @@ def get_batch(data, args, timers):
         args.reset_attention_mask)
     # Convert
     if args.fp16:
+        print ("Halfing the attention mask...")
         attention_mask = attention_mask.half()
 
+    print (f"get_btach will return tokens {tokens} and labels {labels}")    
+        
     return tokens, labels, loss_mask, attention_mask, position_ids
 
 
