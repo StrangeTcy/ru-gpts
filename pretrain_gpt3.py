@@ -352,24 +352,24 @@ def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb
     print (f"We've used a magical mpu.vocab_parallel_cross_entropy method and received losses {losses}")
 
 #     if tokenizer is not None and tb_writer is not None and iteration % 1000 == 0:
-     if tokenizer is not None and tb_writer is not None:
-        try:
-            inf_indexes = np.where(torch.isinf(losses).cpu())[0]
-            nan_indexes = np.where(torch.isnan(losses).cpu())[0]
-            if len(nan_indexes):
-                batch_text = ''
-                for i in nan_indexes:
-                    ids = tokens[i].tolist()
-                    batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
-                tb_writer.add_text('nan_loss', batch_text, iteration)
-            if len(inf_indexes):
-                batch_text = ''
-                for i in inf_indexes:
-                    ids = tokens[i].tolist()
-                    batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
-                tb_writer.add_text('inf_loss', batch_text, iteration)
-        except Exception as e:
-            print(f"Exception during nan/inf logging: {e}")
+    if tokenizer is not None and tb_writer is not None:
+      try:
+          inf_indexes = np.where(torch.isinf(losses).cpu())[0]
+          nan_indexes = np.where(torch.isnan(losses).cpu())[0]
+          if len(nan_indexes):
+              batch_text = ''
+              for i in nan_indexes:
+                  ids = tokens[i].tolist()
+                  batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
+              tb_writer.add_text('nan_loss', batch_text, iteration)
+          if len(inf_indexes):
+              batch_text = ''
+              for i in inf_indexes:
+                  ids = tokens[i].tolist()
+                  batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
+              tb_writer.add_text('inf_loss', batch_text, iteration)
+      except Exception as e:
+          print(f"Exception during nan/inf logging: {e}")
 
     loss_mask = loss_mask.view(-1)
     print ("Summing up loss...")
