@@ -261,10 +261,12 @@ class GPT3ParallelTransformerLayer(torch.nn.Module):
                  layernorm_epsilon,
                  init_method,
                  output_layer_init_method=None,
-                 use_deepspeed_sparse=None):
+                 use_deepspeed_sparse=None,
+                 DEBUG=False):
         super(GPT3ParallelTransformerLayer, self).__init__()
         
-        print ("GPT3ParallelTransformerLayer.__init__ was called")
+        if DEBUG:
+            print ("GPT3ParallelTransformerLayer.__init__ was called")
         
         # Set output layer initialization if not provided.
         if output_layer_init_method is None:
@@ -294,33 +296,43 @@ class GPT3ParallelTransformerLayer(torch.nn.Module):
             init_method,
             output_layer_init_method=output_layer_init_method)
 
-    def forward(self, hidden_states, ltor_mask):
+    def forward(self, hidden_states, ltor_mask, DEBUG=False):
         # hidden_states: [b, s, h]
         # ltor_mask: [1, 1, s, s]
         
-        print (f"GPT3ParallelTransformerLayer.forward was called with hidden_states {hidden_states} \n and ltor_mask {ltor_mask}")
+        if DEBUG:
+                print (f"GPT3ParallelTransformerLayer.forward was called with hidden_states {hidden_states} \n and ltor_mask {ltor_mask}")
 
         # Layer norm at the begining of the transformer layer.
-        print ("Applying layer norm...")
+        if DEBUG:
+                print ("Applying layer norm...")
         layernorm_output = self.input_layernorm(hidden_states)
-        print (f"Now layernorm_output = {layernorm_output}")
+        if DEBUG:
+                print (f"Now layernorm_output = {layernorm_output}")
         # Self attention.
-        print ("Applying self-attention")
+        if DEBUG:
+                print ("Applying self-attention")
         attention_output = self.attention(layernorm_output, ltor_mask)
-        print (f"Now attention_output = {attention_output}")
+        if DEBUG:
+                print (f"Now attention_output = {attention_output}")
         # Residual connection.
         layernorm_input = hidden_states + attention_output
         # Layer norm post the self attention.
-        print ("Layer norm post the self attention")
+        if DEBUG:
+                print ("Layer norm post the self attention")
         layernorm_output = self.post_attention_layernorm(layernorm_input)
-        print (f"Now, post self-attention, layernorm_output is {layernorm_output}")
+        if DEBUG:
+                print (f"Now, post self-attention, layernorm_output is {layernorm_output}")
         # MLP.
-        print ("MLP")
+        if DEBUG:
+                print ("MLP")
         mlp_output = self.mlp(layernorm_output)
-        print (f"Now mlp_output is {mlp_output}")
+        if DEBUG:
+                print (f"Now mlp_output is {mlp_output}")
         # Second residual connection.
         output = layernorm_input + mlp_output
-        print (f"Now second residual connection is {output}")
+        if DEBUG:
+            print (f"Now second residual connection is {output}")
 
         return output
 
