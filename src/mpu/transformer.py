@@ -426,6 +426,7 @@ class GPT3ParallelTransformer(torch.nn.Module):
                 use_deepspeed_sparse=sparsity_config)
 
         # Transformer layers.
+        print ("Getting GPT3ParallelTransformerLayers...")
         self.layers = torch.nn.ModuleList(
             [get_layer(i, num_layers) for i in range(num_layers)])
 
@@ -451,6 +452,7 @@ class GPT3ParallelTransformer(torch.nn.Module):
             return custom_forward
 
         if self.checkpoint_activations:
+            print ("we had checkpoint_activations")
             l = 0
             num_layers = len(self.layers)
             chunk_length = self.checkpoint_num_layers
@@ -459,10 +461,13 @@ class GPT3ParallelTransformer(torch.nn.Module):
                                            hidden_states, attention_mask)
                 l += chunk_length
         else:
+            print ("We did NOT have checkpoint activations")
             for layer in self.layers:
                 hidden_states = layer(hidden_states, attention_mask)
 
         # Final layer norm.
+        print ("Applying final layer norm...")
         output = self.final_layernorm(hidden_states)
+        print (f"And now, in GPT3ParallelTransformer, our output is {output}")
 
         return output
