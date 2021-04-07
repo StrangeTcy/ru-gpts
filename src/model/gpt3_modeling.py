@@ -121,6 +121,8 @@ class GPT3Model(torch.nn.Module):
         print ("Magic: copying to model parallel region")
         transformer_output_parallel = mpu.copy_to_model_parallel_region(
             transformer_output)
+        if torch.isnan(transformer_output_parallel).any():
+            print ("Oh my God, a nan in my output? No way!")
         print (f"And now we have transformer_output_parallel {transformer_output_parallel}")
         print ("Sending to a linear layer...")
         logits_parallel = F.linear(transformer_output_parallel,
