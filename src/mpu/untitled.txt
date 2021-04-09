@@ -1,0 +1,40 @@
+root@nxv12do4al:/notebooks# whoami
+root
+root@nxv12do4al:/notebooks# pwd
+/notebooks
+root@nxv12do4al:/notebooks# cd ru-gpts/
+root@nxv12do4al:/notebooks/ru-gpts# 
+root@nxv12do4al:/notebooks/ru-gpts# 
+root@nxv12do4al:/notebooks/ru-gpts# 
+root@nxv12do4al:/notebooks/ru-gpts# 
+root@nxv12do4al:/notebooks/ru-gpts# git push
+Username for 'https://github.com': StrangeTcy
+Password for 'https://StrangeTcy@github.com': 
+To https://github.com/StrangeTcy/ru-gpts
+ ! [rejected]        master -> master (non-fast-forward)
+error: failed to push some refs to 'https://github.com/StrangeTcy/ru-gpts'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart. Integrate the remote changes (e.g.
+hint: 'git pull ...') before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+root@nxv12do4al:/notebooks/ru-gpts# git pull; !!
+git pull; git push
+Updating 3578ed5..227792d
+error: Your local changes to the following files would be overwritten by merge:
+        src/model/gpt3_modeling.py
+Please commit your changes or stash them before you merge.
+Aborting
+Username for 'https://github.com': StrangeTcy
+Password for 'https://StrangeTcy@github.com': 
+To https://github.com/StrangeTcy/ru-gpts
+ ! [rejected]        master -> master (non-fast-forward)
+error: failed to push some refs to 'https://github.com/StrangeTcy/ru-gpts'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart. Integrate the remote changes (e.g.
+hint: 'git pull ...') before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+root@nxv12do4al:/notebooks/ru-gpts# 
+root@nxv12do4al:/notebooks/ru-gpts# 
+root@nxv12do4al:/notebooks/ru-gpts# git stash
+Saved working directory and index state WIP on master: 3578ed5 Update mappings.py
+root@nxv12do4al:/notebooks/ru-gpts# 
