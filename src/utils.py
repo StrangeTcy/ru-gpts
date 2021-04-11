@@ -32,6 +32,13 @@ from src.download_utils import download_model_files
 from tqdm import tqdm
 
 
+
+
+def check_for_nans(t, name):
+    if torch.isnan(t).any():
+        input (f"{name} has nans. Why?")
+
+
 class DeepSpeedImportWrap(object):
     def __init__(self):
         self.use_ds = os.environ.get("USE_DEEPSPEED", False)
