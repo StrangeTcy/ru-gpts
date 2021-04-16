@@ -182,7 +182,6 @@ class FP16_Optimizer(object):
         if not torch.cuda.is_available:
             raise SystemError("Cannot use fp16 without CUDA.")
 
-        print ("FP16Optimizer.__init__ was called")    
         self.verbose = verbose
 
         self.optimizer = init_optimizer

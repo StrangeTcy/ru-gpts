@@ -41,50 +41,33 @@ from src.utils import (
     get_sparse_attention_config, top_k_logits, DEEPSPEED_WRAP
 )
 
-# I'll just leave it here for now
-# We'll try to import WandB to have a great view of our training,
-# possibly better than in TensorBoard
-try:
-    import wandb
-
-    wandb.ensure_configured()
-    if wandb.api.api_key is None:
-        _has_wandb = False
-        wandb.termwarn("W&B is installed but you haven't logged in.  \nRun `wandb login` or set the WANDB_API_KEY env variable.")
-    else:
-        _has_wandb = False if os.getenv("WANDB_DISABLED") else True
-except ImportError:
-    _has_wandb = False
-
-
-def is_wandb_available():
-    return _has_wandb
-
-
-
-
 # Flag to use Pytorch ddp which uses overlapping communication and computation.
 USE_TORCH_DDP = False
 if USE_TORCH_DDP:
     from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 else:
     from src.model import DistributedDataParallel as DDP
-
-
-
+    
+try: 
+    import    cPickle as pickle
+except:
+    import pickle
 
 
 def get_model(args):
     """Build the model."""
 
     print_rank_0('building GPT3 model ...')
+    print ("asserting we have a correct number of attention heads...")
     assert args.num_attention_heads % args.model_parallel_size == 0
     num_local_heads = args.num_attention_heads // args.model_parallel_size
     deepspeed_sparsity_config = None
     if DEEPSPEED_WRAP and args.deepspeed:
+        print ("we're using deepspeed, and so we're getting a sparse attention config")
         deepspeed_sparsity_config = get_sparse_attention_config(args, num_local_heads)
     if deepspeed_sparsity_config is not None:
-        print_rank_0(f"Use sparse attention with mode {args.sparse_mode}")
+        print_rank_0(f"Using sparse attention with mode {args.sparse_mode}")
+    print ("Calling GPT3Model constructor...")    
     model = GPT3Model(num_layers=args.num_layers,
                       vocab_size=args.vocab_size,
                       hidden_size=args.hidden_size,
@@ -100,6 +83,7 @@ def get_model(args):
                       sparse_mode=args.sparse_mode)
 
     if args.load_huggingface is not None:
+        print ("Loading huggingface model...")
         model = load_huggingface_model(model, args.load_huggingface, args.huggingface_double_pos_embeddings)
 
     if mpu.get_data_parallel_rank() == 0:
@@ -109,41 +93,42 @@ def get_model(args):
 
     # To prevent OOM for model sizes that cannot fit in GPU memory in full precision
     if DEEPSPEED_WRAP and args.deepspeed and args.fp16:
-        print ("Casting a model to half-precision")
+        print ("We've had deepspeed AND fp16, so we're halfing the model...")
         model.half()
 
     # GPU allocation.
-    print (f"Allocating model to GPU {torch.cuda.current_device()}")
+    print (f"placing the model on device {torch.cuda.current_device()}")
     model.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
     if args.fp16:
-        print ("fp16 converting")
+        print ("we've halfed the model before, but now we're wrapping it into a fp16_module. For...some reason...")
         model = FP16_Module(model)
 
     # Wrap model for distributed training.
-    print ("Getting the model ready for distributed training...")
+    print ("Setting up distributed training...")
     if USE_TORCH_DDP:
-        print ("Using torch_ddp")
         i = torch.cuda.current_device()
+        print (f"Using classic pytorch DDP with device {i}")
         model = DDP(model, device_ids=[i], output_device=i,
                     process_group=mpu.get_data_parallel_group())
     else:
-        print ("Using Special Sberbank Magic DDP!")
+        print ("Using sberbank magic DDP")
         model = DDP(model)
 
+#     input ("ready to return model")
+    print ("ready to return model")
     return model
 
 
 def get_optimizer(model, args):
     """Set up the optimizer."""
 
-    print (f"Ok, now that we have model {model} and args {args}, we're getting an optimizer")
-
-
     # Build parameter groups (weight decay and non-decay).
     while isinstance(model, (DDP, FP16_Module)):
+        print ("we're dealing with a DDP/FP16_Module, extracting the module...")
         model = model.module
+    print ("Getting param groups for weight decay optimization...")    
     param_groups = gpt3_get_params_for_weight_decay_optimization(model)
 
     # Add model parallel attribute if it is not set.
@@ -162,14 +147,18 @@ def get_optimizer(model, args):
                                        lr=args.lr, weight_decay=args.weight_decay)
     else:
         # Use FusedAdam.
-        print ("For now, we're choosing FusedAdam as an optimizer")
         optimizer = Adam(param_groups,
                          lr=args.lr, weight_decay=args.weight_decay)
 
     print(f'Optimizer = {optimizer.__class__.__name__}')
+    
+#     print ("let's save our optimizer...")
+#     with open("/notebooks/sberbank_rugpts/our_model/optimizer.pkl", "wb") as f:
+#         pickle.dump(optimizer, f)
+    
     if DEEPSPEED_WRAP and args.deepspeed:
         # fp16 wrapper is not required for DeepSpeed.
-        print (f"We have DEEPSPEE_WRAP and args.deepspeed, so we're NOT wrapping our optimizer {optimizer} in fp16 and just returning it as is")
+        print (f"we're using deepspeed, and so returning our optimizer {optimizer}")
         return optimizer
 
     # Wrap into fp16 optimizer.
@@ -182,7 +171,8 @@ def get_optimizer(model, args):
                                        'scale_window': args.loss_scale_window,
                                        'min_scale': args.min_scale,
                                        'delayed_shift': args.hysteresis})
-
+        
+    print (f" we've probably wrapped our optimizer in fp16, \nand now we're eturning our optimizer {optimizer}")
     return optimizer
 
 
@@ -197,7 +187,6 @@ def get_learning_rate_scheduler(optimizer, args):
     num_iters = max(1, num_iters)
     init_step = -1
     warmup_iter = args.warmup * num_iters
-    print ("Creating an AnnealingLR scheduler")
     lr_scheduler = AnnealingLR(optimizer,
                                start_lr=args.lr,
                                warmup_iter=warmup_iter,
@@ -206,24 +195,25 @@ def get_learning_rate_scheduler(optimizer, args):
                                last_iter=init_step,
                                min_lr=args.min_lr)
 
+    print (f"and now we're returning a scheduler {lr_scheduler}")
     return lr_scheduler
 
 
 def setup_model_and_optimizer(args):
     """Setup model and optimizer."""
 
-    print (f"setup_model_and_optimizer has received args {args}")
-
-    print ("Getting model")
+    print ("setting up model...")
     model = get_model(args)
-    print ("Getting optimizer")
+    print ("setting up optimizer...")
     optimizer = get_optimizer(model, args)
-    print ("Getting LR scheduler")
+    print ("setting up lr scheduler...")
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
 
+    
     if DEEPSPEED_WRAP and args.deepspeed:
         print_rank_0("DeepSpeed is enabled.")
 
+        print ("Calling deepspeed.initialize with our model, optimizer and scheduler")
         model, optimizer, _, lr_scheduler = DEEPSPEED_WRAP.deepspeed.initialize(
             model=model,
             optimizer=optimizer,
@@ -232,14 +222,17 @@ def setup_model_and_optimizer(args):
             mpu=mpu,
             dist_init_required=False
         )
+        print ("We've wrapped our model, optimizer and scheduler in DeepSpeed")
 
     if args.load is not None:
         print_rank_0("Load checkpoint from " + args.load)
         args.iteration = load_checkpoint(model, optimizer, lr_scheduler, args, deepspeed=DEEPSPEED_WRAP and args.deepspeed)
         print_rank_0("Checkpoint loaded")
+#         input ("This was all it took? Mother...")
     else:
         args.iteration = 0
 
+    print ("returning our model, optimizer and scheduler")    
     return model, optimizer, lr_scheduler
 
 
@@ -296,7 +289,7 @@ def get_masks_and_position_ids(data,
     return attention_mask, loss_mask, position_ids
 
 
-def get_batch(data, args, timers):
+def get_batch(data, args, timers, DEBUG=False):
     """ get_batch subdivides the source data into chunks of
     length args.seq_length. If source is equal to the example
     output of the data loading example, with a seq_length limit
@@ -309,21 +302,18 @@ def get_batch(data, args, timers):
     to the seq_len dimension in the LSTM. A Variable representing an appropriate
     shard reset mask of the same dimensions is also returned.
     """
-    
-    print (f"get_batch has received data {data}")
+    if DEBUG:
+        print (f"get_batch was passed data {data}")
     
     # Broadcast data.
-    print ("Calling magic method mpu.broadcast_data")
     data_b = mpu.broadcast_data(['text'], {'text': data}, torch.int64)
 
     # Unpack.
-    print ("Unpacking...")
     tokens_ = data_b['text'].long()
     labels = tokens_.contiguous()
     tokens = tokens_.contiguous()
 
     # Get the masks and postition ids.
-    print ("Getting masks and postition ids")
     attention_mask, loss_mask, position_ids = get_masks_and_position_ids(
         tokens,
         args.eod_token,
@@ -331,59 +321,49 @@ def get_batch(data, args, timers):
         args.reset_attention_mask)
     # Convert
     if args.fp16:
-        print ("Halfing the attention mask...")
         attention_mask = attention_mask.half()
 
-    print (f"get_batch will return tokens {tokens} and labels {labels}")    
-        
     return tokens, labels, loss_mask, attention_mask, position_ids
 
 
-def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb_writer=None):
+def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb_writer=None, DEBUG=False):
     """Forward step."""
 
-    print (f"forward_step has received sample {sample}")
+    if DEBUG:
+        print (f"forward_step was passed sample {sample}. \n Getting batch...")
     # Get the batch.
-    print ("Getting batch...")
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(sample, args, timers)
 
     # Forward model.
-    print (f"sending tokens {tokens}, \n position_ids {position_ids} \n and attention_mask {attention_mask}")
     output = model(tokens, position_ids, attention_mask)
-    print (f"Now we have output {output}")
 
-    print ("Making variables contiguous...")    
     labels = labels[:, 1:].contiguous()
     output = output[:, :-1].contiguous()
     loss_mask = loss_mask[:, :-1].contiguous()
 
     losses = mpu.vocab_parallel_cross_entropy(output.contiguous().float(), labels)
-    print (f"We've used a magical mpu.vocab_parallel_cross_entropy method and received losses {losses}")
 
-#     if tokenizer is not None and tb_writer is not None and iteration % 1000 == 0:
-    if tokenizer is not None and tb_writer is not None:
-      try:
-          inf_indexes = np.where(torch.isinf(losses).cpu())[0]
-          nan_indexes = np.where(torch.isnan(losses).cpu())[0]
-          if len(nan_indexes):
-              batch_text = ''
-              for i in nan_indexes:
-                  ids = tokens[i].tolist()
-                  batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
-              tb_writer.add_text('nan_loss', batch_text, iteration)
-          if len(inf_indexes):
-              batch_text = ''
-              for i in inf_indexes:
-                  ids = tokens[i].tolist()
-                  batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
-              tb_writer.add_text('inf_loss', batch_text, iteration)
-      except Exception as e:
-          print(f"Exception during nan/inf logging: {e}")
+    #     if tokenizer is not None and tb_writer is not None and iteration % 1000 == 0:
+    #         try:
+    #             inf_indexes = np.where(torch.isinf(losses).cpu())[0]
+    #             nan_indexes = np.where(torch.isnan(losses).cpu())[0]
+    #             if len(nan_indexes):
+    #                 batch_text = ''
+    #                 for i in nan_indexes:
+    #                     ids = tokens[i].tolist()
+    #                     batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
+    #                 tb_writer.add_text('nan_loss', batch_text, iteration)
+    #             if len(inf_indexes):
+    #                 batch_text = ''
+    #                 for i in inf_indexes:
+    #                     ids = tokens[i].tolist()
+    #                     batch_text += f"\n\nSample {i}: {tokenizer.decode(ids)}"
+    #                 tb_writer.add_text('inf_loss', batch_text, iteration)
+    #         except Exception as e:
+    #             print(f"Exception during nan/inf logging: {e}")
 
     loss_mask = loss_mask.view(-1)
-    print ("Summing up loss...")
     loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
-    print (f"And now we'll return loss {loss}")
 
     return loss
 
@@ -391,7 +371,6 @@ def forward_step(sample, model, args, timers, tokenizer=None, iteration=None, tb
 def backward_step(optimizer, model, lm_loss, args, timers):
     """Backward step."""
 
-    print (f"backward_step has received loss {lm_loss}")    
     # Total loss.
     loss = lm_loss
 
@@ -413,7 +392,6 @@ def backward_step(optimizer, model, lm_loss, args, timers):
     if DEEPSPEED_WRAP and args.deepspeed:
         # DeepSpeed backward propagation already addressed all reduce communication.
         # Reset the timer to avoid breaking timer logs below.
-        print ("DeepSpeed allreducing...")
         timers('allreduce').reset()
     else:
         torch.distributed.all_reduce(reduced_losses.data)
@@ -438,8 +416,6 @@ def backward_step(optimizer, model, lm_loss, args, timers):
             else:
                 optimizer.clip_master_grads(args.clip_grad)
 
-    print (f"We're about to return reduced loss {lm_loss_reduced}")           
-                
     return lm_loss_reduced
 
 
@@ -465,15 +441,8 @@ def train_step(sample, model, optimizer, lr_scheduler,
                args, timers, tokenizer, iteration, tb_writer):
     """Single training step."""
 
-    print ("We're taking a train step")
-    print (f"with sample {sample}")
-#     ,\
-#             model {model}, \
-#             optimizer, lr_scheduler,
-#                args, timers, tokenizer, iteration, tb_writer")
     # Forward model for one step.
     timers('forward').start()
-    print ("We're taking a forward step...")
     lm_loss = forward_step(sample, model, args, timers, tokenizer, iteration, tb_writer)
     timers('forward').stop()
 
@@ -481,7 +450,6 @@ def train_step(sample, model, optimizer, lr_scheduler,
 
     # Calculate gradients, reduce across processes, and clip.
     timers('backward').start()
-    print ("Now we're taking a backward step...")
     lm_loss_reduced = backward_step(optimizer, model, lm_loss, args, timers)
     timers('backward').stop()
 
@@ -489,15 +457,12 @@ def train_step(sample, model, optimizer, lr_scheduler,
     skipped_iter = 0
     timers('optimizer').start()
     if DEEPSPEED_WRAP and args.deepspeed:
-        print ("We're using DeepSpeed and so updating our cool optimizer")
         model.step()
     else:
-        print ("We're NOT using DeepSpeed, but we're still updating our optimizer")
         optimizer.step()
 
         # Update learning rate.
         if not (args.fp16 and optimizer.overflow):
-            print ("We're taking an LR Scheduler step...")
             lr_scheduler.step()
         else:
             skipped_iter = 1
@@ -507,19 +472,14 @@ def train_step(sample, model, optimizer, lr_scheduler,
 
 
 def train(model, optimizer, lr_scheduler,
-          train_data_iterator, val_data, timers, args, tokenizer):
+          train_data_iterator, val_data, timers, args, tokenizer, blabla_flag=False):
     """Train the model."""
-    print ("Training the model...")
-#     input (f"We'll be logging stuff to {args.logging_dir}")
-    print (f"We'll be logging stuff to {args.logging_dir}")
-
 
     # Turn on training mode which enables dropout.
     model.train()
 
     # Tracking loss.
     total_lm_loss = 0.0
-    print (f"We haven't started training yet, so our total_lm_loss should be 0.0. \n And it actually is {total_lm_loss}")
 
     # Iterations.
     iteration = args.iteration
@@ -540,7 +500,7 @@ def train(model, optimizer, lr_scheduler,
         timers('data loader').stop()
 
         if train_start and is_master:
-            batch_text = f"\nIteration {iteration} start sample: {tokenizer.decode(sample[0, :200])}"
+            batch_text = f"\n\Iteration {iteration} start sample: {tokenizer.decode(sample[0, :200])}"
             tb_writer.add_text('train_start', batch_text, iteration)
 
         lm_loss, skipped_iter = train_step(sample,
@@ -553,14 +513,10 @@ def train(model, optimizer, lr_scheduler,
         train_start = False
 
         # Update losses.
-        print ("Updating losses")
         total_lm_loss += lm_loss.data.detach().float()
-        print (f"And now we have total_lm_loss {total_lm_loss}")
-        print (f"We also have log interval {args.log_interval}. We'll soon be dividing one by the other")
 
         # Logging.
         if is_master and iteration % args.log_interval == 0:
-            print ("We are master (is_master was True)")
             learning_rate = optimizer.param_groups[0]['lr']
             avg_lm_loss = total_lm_loss.item() / args.log_interval
             ppl = math.exp(avg_lm_loss)
@@ -583,14 +539,9 @@ def train(model, optimizer, lr_scheduler,
                 'Speed/seen_tokens': iteration * (tokens / args.log_interval)
             }
             if args.fp16:
+                lscale = 1.0
 #                 lscale = optimizer.cur_scale if DEEPSPEED_WRAP and args.deepspeed else optimizer.loss_scale
-                if DEEPSPEED_WRAP and args.deepspeed:
-                    print ("We're using DEEPSPEED_WRAP and args.deepspeed AND args.fp16, which is redundant")
-#                     lscale = optimizer.loss_scale
-                    print (f"We have loss_scale {args.loss_scale}. It's probably `None`, so we're using dynamic loss scale. \n But we have to log something, so lscale is now 1")
-                    lscale = 1.0
-                else:
-                    lscale = optimizer.cur_scale
+                
                 log_string += ' loss scale {:.1f} |'.format(lscale)
                 scalars['lscale'] = lscale
             print_rank_0(log_string)
@@ -599,12 +550,16 @@ def train(model, optimizer, lr_scheduler,
 
             if ppl < 3:
                 # generate only when model is relatively good
-                print ("Our perplexity is <3, so we're running an evaluation")
-                prefix = 'Бразильские ученые открыли редкий вид карликовых единорогов, обитающих на западе Ютландии'
+#                 prefix = 'Бразильские ученые открыли редкий вид карликовых единорогов, обитающих на западе Ютландии'
+                prefix = 'localStorage.getItem('
                 model.eval()
                 with torch.no_grad():
                     text = generate(model, tokenizer, prefix, 128)
                 model.train()
+                print (f"Our ppl was {ppl}, which is <3. \n From prefix {prefix} we've generated text {text}")
+#                 input ("Yoohoo?")
+                with open ("generated_texts_iters_{}".format(args.train_iters), "a+") as ff:
+                    ff.write(f"At iteration {iteration} out of {args.train_iters} our ppl was {ppl}, which is <3. \n From prefix {prefix} we've generated text {text}\n===========================\n")
                 tb_writer.add_text('sample', text, iteration)
 
             if args.log_memory:
@@ -620,11 +575,9 @@ def train(model, optimizer, lr_scheduler,
                            normalizer=args.log_interval)
         # Checkpointing
         if args.save and args.save_interval and iteration % args.save_interval == 0:
-            print ("Saving checkpoint...")
             save_checkpoint(iteration, model, optimizer, lr_scheduler, args, deepspeed=DEEPSPEED_WRAP and args.deepspeed)
 
         # Evaluation
-        print ("Evaluating...")
         if args.eval_interval and iteration % args.eval_interval == 0 and args.do_valid:
             prefix = 'iteration {}'.format(iteration)
             val_loss, val_ppl = evaluate_and_print_results(
@@ -648,13 +601,8 @@ def train(model, optimizer, lr_scheduler,
 def evaluate(data_iterator, model, args, timers, verbose=False):
     """Evaluation."""
 
-    print (f"evaluate has received data_iterator {data_iterator}, \
-        model {model}, \
-        args {args} \
-        and timers {timers}")
-
+    print (f"evaluate got passed data_iterator {data_iterator}")
     # Turn on evaluation mode which disables dropout.
-    print ("Running model.evaluate()...")
     model.eval()
 
     total_lm_loss = 0
@@ -686,7 +634,6 @@ def evaluate(data_iterator, model, args, timers, verbose=False):
             total_lm_loss += lm_loss.data.detach().float().item()
 
     # Move model back to the train mode.
-    print ("Setting model back to train mode...")
     model.train()
 
     total_lm_loss /= eval_len
@@ -696,13 +643,6 @@ def evaluate(data_iterator, model, args, timers, verbose=False):
 def evaluate_and_print_results(prefix, data_iterator, model,
                                args, timers, verbose=False):
     """Helper function to evaluate and dump results on screen."""
-
-    print (f"evaluate_and_print_results has received prefix {prefix}, \
-        data_iterator {data_iterator}, \
-        model {model}, \
-        args {args} \
-        and timers {timers}")
-
     if args.load_tag:
         prefix = 'checkpoint {}'.format(args.load_tag)
     lm_loss = evaluate(data_iterator, model, args, timers, verbose)
@@ -735,7 +675,6 @@ def evaluate_and_print_results(prefix, data_iterator, model,
 
 
 def set_deepspeed_activation_checkpointing(args):
-    print (f"set_deepspeed_activation_checkpointing has received args {args} \n and is now setting things up...")
     DEEPSPEED_WRAP.deepspeed.checkpointing.configure(mpu, deepspeed_config=args.deepspeed_config,
                                                      num_checkpoints=args.num_layers)
     mpu.checkpoint = DEEPSPEED_WRAP.deepspeed.checkpointing.checkpoint
@@ -746,15 +685,12 @@ def set_deepspeed_activation_checkpointing(args):
 def initialize_distributed(args):
     """Initialize torch.distributed."""
 
-    print (f"initialize_distributed has received args {args}")
-
     # Manually set the device ids.
     device = args.rank % torch.cuda.device_count()
     if args.local_rank is not None:
         device = args.local_rank
     torch.cuda.set_device(device)
     # Call the init process
-    print ("initialize_distributed is calling the init process...")
     init_method = 'tcp://'
     master_ip = os.getenv('MASTER_ADDR', 'localhost')
     master_port = os.getenv('MASTER_PORT', '6000')
@@ -770,7 +706,6 @@ def initialize_distributed(args):
     # Optional DeepSpeed Activation Checkpointing Features
     #
     if DEEPSPEED_WRAP and args.deepspeed and args.deepspeed_activation_checkpointing:
-        print ("initialize_distributed is setting DeepSpeed activation checkpointing...")
         set_deepspeed_activation_checkpointing(args)
 
 
@@ -785,25 +720,18 @@ def set_random_seed(seed):
 
 
 def get_train_val_test_data(args):
-    """Load the data on rank zero and broadcast number of tokens to all GPUS."""
-
-    print (f"get_train_val_test_data has received args {args}")
+    """Load the data on rank zero and boradcast number of tokens to all GPUS."""
 
     (train_data, val_data, test_data) = (None, None, None)
 
     # Data loader only on rank 0 of each model parallel group.
     if mpu.get_model_parallel_rank() == 0:
-        print ("We're on rank 0. Running make_gpt3_dataloaders")
         (train_data, val_data, test_data), num_tokens, eod_token, tokenizer = make_gpt3_dataloaders(args)
         before = num_tokens
         after = before
         multiple = args.make_vocab_size_divisible_by * mpu.get_model_parallel_world_size()
         while (after % multiple) != 0:
             after += 1
-        available_gpus = [torch.cuda.device(i) for i in range(torch.cuda.device_count())]
-        if len(available_gpus) == 1:
-            print ("We're working with a single GPU, so let's ignore hese before\after shenanigans")
-            after = before
         print_rank_0(
             '> padded vocab (size: {}) with {} dummy tokens (new size: {})'.format(before, after - before, after))
         print_rank_0('> end-of-document token: {}'.format(eod_token))
@@ -822,23 +750,13 @@ def get_train_val_test_data(args):
     args.do_train = token_counts[2].item()
     args.do_valid = token_counts[3].item()
     args.do_test = token_counts[4].item()
+    
+    print (f"in get_train_val_test_data we're returning train_data {train_data}, val_data {val_data}, test_data {test_data}")
 
-    print ("Returning train_data, test_data and a tokenizer")
     return train_data, val_data, test_data, num_tokens, eod_token, tokenizer
 
 
 def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, temperature=1.0, top_k=0, top_p=0.9):
-    
-    print (f"generate was called with model {model},\
-            tokenizer {tokenizer},\
-             raw_text {raw_text}, \
-             out_seq_length = {out_seq_length}, \
-             seq_length = {seq_length}, \
-             temperature = {temperature}, \
-             top_k = {top_k}, \
-             and top_p = {top_p}")
-
-    print ("Tokenizing raw_text...")
     context_tokens = tokenizer(raw_text)['input_ids']
     context_length = len(context_tokens)
     pad_id = tokenizer.encoder['<pad>']
@@ -848,7 +766,6 @@ def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, tem
     context_tokens_tensor = torch.cuda.LongTensor(context_tokens)
     context_length_tensor = torch.cuda.LongTensor([context_length])
 
-    print ("Broadcasting tensors...")
     torch.distributed.broadcast(context_length_tensor, mpu.get_model_parallel_src_rank(),
                                 group=mpu.get_model_parallel_group())
     torch.distributed.broadcast(context_tokens_tensor, mpu.get_model_parallel_src_rank(),
@@ -864,7 +781,6 @@ def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, tem
     counter = 0
     start_context_length = context_length
 
-    print ("Getting logits from our model...")
     while counter < (start_context_length + out_seq_length):
         logits = model(tokens, position_ids, attention_mask)
         logits = logits[:, context_length - 1, :] / temperature
@@ -878,18 +794,14 @@ def generate(model, tokenizer, raw_text, out_seq_length=256, seq_length=512, tem
         counter += 1
 
         output_tokens_list = tokens.view(-1).tolist()
-        print ("Decoding tokens...")
         decode_tokens = tokenizer.decode(output_tokens_list)
         decode_tokens = decode_tokens[:decode_tokens.find("<|endoftext|>")]
         token_end = decode_tokens.find("<|endoftext|>")
         if token_end != -1:
             break
 
-    print ("Getting tokens...")        
     output_tokens_list = tokens.view(-1).tolist()
-    print ("Decoding tokens...")
     decode_tokens = tokenizer.decode(output_tokens_list)
-    print ("Returning results...")
     return decode_tokens[:decode_tokens.find("<|endoftext|>")]
 
 
@@ -900,38 +812,43 @@ def main():
     torch.backends.cudnn.enabled = False
 
     # Timer.
-    print ("in main, setting up Timers")
     timers = Timers()
 
     # Arguments.
-    print ("in main, getting args")
     args = get_args()
 
     #     if args.load_huggingface:
     #         args.make_vocab_size_divisible_by = 1
 
     # Pytorch distributed.
-    print ("in main, initializing distributed")
     initialize_distributed(args)
     if torch.distributed.get_rank() == 0:
         print('Pretrain GPT3 model')
         print_args(args)
 
     # Random seeds for reproducability.
-    print ("in main, setting random seeds")
     set_random_seed(args.seed)
 
     # Data stuff.
-    print ("in main, running get_train_val_test_data")
     train_data, val_data, test_data, args.vocab_size, args.eod_token, tokenizer = get_train_val_test_data(args)
 
     # Model, optimizer, and learning rate.
-    print ("In main, setting up model & optimizer...")
     model, optimizer, lr_scheduler = setup_model_and_optimizer(args)
+    print ("Model setup, ready to train...")
+    
+    blabla_flag = False #True
+    if args.load and blabla_flag:
+        prefix = 'localStorage.getItem('
+        text = generate(model, tokenizer, prefix, 128)
+        print (f"From prefix {prefix} we've generated text {text}")
+        input ("Yoohoo?")
 
     # Resume data loader if necessary.
     if args.resume_dataloader:
         if train_data is not None:
+#             input (f"we have args.iteration {args.iteration}")
+#             print ("setting iteration to 0")
+#             args.iteration = 0
             train_data.batch_sampler.start_iter = args.iteration % len(train_data)
             print_rank_0(f"Resume train set from iteration {train_data.batch_sampler.start_iter}")
         if val_data is not None:
@@ -953,19 +870,16 @@ def main():
                                        args,
                                        tokenizer)
 
-        if args.do_valid:
             prefix = 'the end of training for val data'
             # val_loss, val_ppl
             _ = evaluate_and_print_results(prefix, iter(val_data) if val_data else None,
                                            model, args, timers, False)
 
     if args.save and iteration != 0:
-        print ("\n++++++++++++\nSaving checkpoint...\n++++++++++++\n")
         save_checkpoint(iteration, model, optimizer, lr_scheduler, args, deepspeed=DEEPSPEED_WRAP and args.deepspeed)
 
     if args.do_test:
         # Run on test data.
-        print ("Doing a test...")
         prefix = 'the end of training for test data'
         evaluate_and_print_results(prefix, iter(test_data) if test_data else None,
                                    model, args, timers, True)

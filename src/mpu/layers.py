@@ -37,8 +37,6 @@ from .random import get_cuda_rng_tracker
 from .utils import divide
 from .utils import split_tensor_along_last_dim
 from .utils import VocabUtility
-from ..utils import check_for_nans 
-from varname import nameof
 
 
 def _initialize_affine_weight(weight, output_size, input_size,
@@ -128,7 +126,6 @@ class VocabParallelEmbedding(torch.nn.Module):
                                       self.padding_idx, self.max_norm,
                                       self.norm_type, self.scale_grad_by_freq,
                                       self.sparse)
-        check_for_nans(output_parallel, nameof(output_parallel))
         # Mask the output embedding.
         output_parallel[input_mask, :] = 0.0
         # Reduce across all the model parallel GPUs.

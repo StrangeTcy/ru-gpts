@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright (c) 2020, Sber.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -327,7 +326,6 @@ def get_args():
     if DEEPSPEED_WRAP:
         parser = DEEPSPEED_WRAP.deepspeed.add_config_arguments(parser)
 
-    print ("in argument.get_args, parsing args...")    
     args = parser.parse_args()
 
     if not args.train_data and not args.train_data_path:

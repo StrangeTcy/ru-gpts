@@ -29,15 +29,6 @@ from src.model import DistributedDataParallel as DDP
 import os
 from src.download_utils import download_model_files
 
-from tqdm import tqdm
-
-
-
-
-def check_for_nans(t, name):
-    if torch.isnan(t).any():
-        input (f"{name} has nans. Why?")
-
 
 class DeepSpeedImportWrap(object):
     def __init__(self):
@@ -186,7 +177,6 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False, zero=False):
 
 
 def ensure_directory_exists(filename):
-    print (f"ensure_directory_exists got filename {filename}")
     dirname = os.path.dirname(filename)
     if not os.path.exists(dirname):
         os.makedirs(dirname)
@@ -208,11 +198,18 @@ def save_zero_checkpoint(args, iteration, optimizer):
 def save_checkpoint(iteration, model, optimizer,
                     lr_scheduler, args, deepspeed=False):
     """Save a model checkpoint."""
+#     input (f"in save_checkpoint, deepspeed was {deepspeed}")
+    print (f"in save_checkpoint, deepspeed was {deepspeed}")
     if deepspeed:
-        print ("saving deepspeed checkpoint")
+        print ("Saving deepspeed checkpoint")
+        
         save_ds_checkpoint(iteration, model, args)
     else:
-        print ("Saving a non-deepspeed checkpoint")
+#     if deepspeed:
+# #         print ("Saving deepspeed checkpoint")
+#         print ("Oh, screw it, we'll save the usual way")
+# #         save_ds_checkpoint(iteration, model, args)
+# #     else:
         # Only rank zer0 of the data parallel writes to the disk.
         if isinstance(model, torchDDP):
             model = model.module
@@ -244,6 +241,8 @@ def save_checkpoint(iteration, model, optimizer,
             ensure_directory_exists(checkpoint_name)
             torch.save(sd, checkpoint_name)
             print('  successfully saved {}'.format(checkpoint_name))
+#             input ("Check that saving went well?")
+            print ("Check that saving went well?")
 
     # Wait so everyone is done (necessary)
     torch.distributed.barrier()
@@ -256,9 +255,11 @@ def save_checkpoint(iteration, model, optimizer,
     torch.distributed.barrier()
 
 
-def save_ds_checkpoint(iteration, model, args):
+def save_ds_checkpoint(iteration, model, args, DEBUG=False):
     """Save a model checkpoint."""
-    print (f"Saving a deepspeed checkpoint to {args.save}")
+
+    if DEBUG:
+        print (f"saving ds checkpoint with iteration {iteration}, \n model {model}, \n and args {args}")
     sd = {}
     sd['iteration'] = iteration
     # rng states.
@@ -269,6 +270,7 @@ def save_ds_checkpoint(iteration, model, args):
         sd['cuda_rng_state'] = torch.cuda.get_rng_state()
         sd['rng_tracker_states'] = mpu.get_cuda_rng_tracker().get_states()
 
+    print ("actually saving")    
     model.save_checkpoint(args.save, str(iteration), client_state=sd)
 
 
@@ -318,16 +320,40 @@ def get_checkpoint_iteration(args):
     return iteration, release, True
 
 
+
 def load_checkpoint(model, optimizer, lr_scheduler, args, deepspeed=False):
     """Load a model checkpoint."""
-
+    
+    print (f"load_checkpoint has deepspeed {deepspeed}")
     iteration, release, success = get_checkpoint_iteration(args)
 
     if not success:
         return 0
 
     if deepspeed:
-        load_optim = not args.no_load_optim
+        print ("loading a deepspeed checkpoint...")
+        
+        import torch
+        thingy = torch.cuda.memory_summary(device=torch.cuda.current_device(), abbreviated=False)
+        print (f"reporting memory usage:{thingy}")
+        
+        print ("Attempting to free some memory...")
+        try:
+            torch.cuda.empty_cache()
+        except Error as e:
+            print (f"Something went wrong:{e}")
+        print ("Trying to collect garbage:")
+        try:
+            import gc
+            gc.collect()
+        except Error as e:
+            print (f"Something went wrong:{e}")
+        thingy = torch.cuda.memory_summary(device=torch.cuda.current_device(), abbreviated=False)
+        print (f"We've tried to free some memory, \nand now are reporting memory usage:{thingy}")
+        
+#         load_optim = not args.no_load_optim
+        print ("Oh, screw it, let's not load an optimizer...")
+        load_optim = False
         checkpoint_name, sd = model.load_checkpoint(args.load, iteration, load_optimizer_states=load_optim,
                                                     load_lr_scheduler_states=load_optim)
 
@@ -409,6 +435,215 @@ def load_checkpoint(model, optimizer, lr_scheduler, args, deepspeed=False):
     return iteration
 
 
+
+# def load_checkpoint(model, optimizer, lr_scheduler, args, deepspeed=False):
+#     """Load a model checkpoint."""
+
+#     print (f"load_checkpoint has deepspeed {deepspeed}")
+#     iteration, release, success = get_checkpoint_iteration(args)
+
+#     if not success:
+#         return 0
+
+#     if deepspeed:
+#         print ("loading a deepspeed checkpoint...")
+#         load_optim = not args.no_load_optim
+#         print (f"utils.load_checkpoint is using model {model}")
+# #         our_checkpoint_dict = torch.load("/notebooks/sberbank_rugpts/our_model/100/mp_rank_00_model_states.pt")
+# #         print (f"And now we have a checkpoint {our_checkpoint_dict}")
+# #         for k,v in our_checkpoint_dict.items():
+# #             print (f"\t{k}:\t\t{v}")
+# #         print ("That's our checkpoint")
+# #         try:
+# #             checkpoint_name, sd = model.load_checkpoint(args.load, iteration, load_optimizer_states=load_optim,
+# #                                                     load_lr_scheduler_states=load_optim)
+# #         except:
+#         print ("Ok, loading a deepspeed checkpoint the normal way failed. Let's try something more elaborate...")
+#             # Checkpoint.
+# #             checkpoint_name = get_checkpoint_name(args.load, iteration, release)
+#         checkpoint_name = "/notebooks/sberbank_rugpts/our_model/100/mp_rank_00_model_states.pt"
+
+#         if mpu.get_data_parallel_rank() == 0:
+#             print('global rank {} is loading checkpoint {}'.format(
+#                 torch.distributed.get_rank(), checkpoint_name))
+
+#         # Load the checkpoint.
+#         print ("Loading checkpoint with torch.load")
+#         sd = torch.load(checkpoint_name) #, map_location='cpu'
+#         optimizer = sd['optimizer']
+#         print (f"And now we have optimizer {optimizer}")
+
+#         print ("checking model for DDP-ness...")
+#         if isinstance(model, torchDDP):
+#             print ("Extracting module from model")
+#             model = model.module
+            
+#         if isinstance(model, DEEPSPEED_WRAP.deepspeed.runtime.engine.DeepSpeedEngine):
+#             print ("Ok, we've recognized that it's a deepspeed model")
+            
+#         else:
+# #             input (f"Our model is of type {type(model)}")
+#             print (f"Our model is of type {type(model)}")
+
+#         print ("Sending this stuff to deepspeed.initialize")
+#         model, optimizer, _, lr_scheduler = DEEPSPEED_WRAP.deepspeed.initialize(
+#             model=model,
+#             optimizer=optimizer,
+#             args=args,
+#             lr_scheduler=None,
+#             mpu=mpu,
+#             dist_init_required=False
+#         )
+
+
+#         # Model.
+#         try:
+#             print ("trying to load state_dict")
+#             model.load_state_dict(sd['model'])
+#         except KeyError:
+#             print_rank_0('A metadata file exists but unable to load model '
+#                          'from checkpoint {}, exiting'.format(checkpoint_name))
+#             print (f"We  were looking for sd['model'], but our sd only has keys {sd.keys()}")
+# #             for k,v in sd.items():
+# #                 print (f"\t{k}:\t\t{v}")
+#             try:
+#                 model.load_state_dict(sd['module'])
+#             except:
+#                 print ("Ok, loading from module didn't work either. Weird...")
+#             exit()
+
+#         # Optimizer.
+#         if not release and not args.finetune and not args.no_load_optim:
+#             try:
+#                 if optimizer is not None:
+#                     optimizer.load_state_dict(sd['optimizer'])
+#                 if lr_scheduler is not None:
+#                     lr_scheduler.load_state_dict(sd['lr_scheduler'])
+#             except KeyError:
+#                 print_rank_0('Unable to load optimizer from checkpoint {}, exiting. '
+#                              'Specify --no-load-optim or --finetune to prevent '
+#                              'attempting to load the optimizer '
+#                              'state.'.format(checkpoint_name))
+#                 exit()
+
+#     # Iterations.
+#     if args.finetune or release:
+#         iteration = 0
+#     else:
+#         try:
+#             iteration = sd['iteration']
+#         except KeyError:
+#             try:  # Backward compatible with older checkpoints
+#                 iteration = sd['total_iters']
+#             except KeyError:
+#                 print_rank_0('A metadata file exists but Unable to load iteration '
+#                              ' from checkpoint {}, exiting'.format(checkpoint_name))
+#                 exit()
+
+#     # rng states.
+#     if not release and not args.finetune and not args.no_load_rng:
+#         try:
+#             random.setstate(sd['random_rng_state'])
+#             np.random.set_state(sd['np_rng_state'])
+#             torch.set_rng_state(sd['torch_rng_state'])
+#             torch.cuda.set_rng_state(sd['cuda_rng_state'])
+#             mpu.get_cuda_rng_tracker().set_states(sd['rng_tracker_states'])
+#         except KeyError:
+#             print_rank_0('Unable to load optimizer from checkpoint {}, exiting. '
+#                          'Specify --no-load-optim or --finetune to prevent '
+#                          'attempting to load the optimizer '
+#                          'state.'.format(checkpoint_name))
+#             exit()
+
+#     torch.distributed.barrier()
+#     if mpu.get_data_parallel_rank() == 0:
+#         print('  successfully loaded {}'.format(checkpoint_name))
+
+#     return iteration
+
+
+
+
+#     if checkpoint_name is None:
+#         if mpu.get_data_parallel_rank() == 0:
+#             print("Unable to load checkpoint.")
+#         return iteration
+
+# #     else:
+
+# # #         print ("Oh, screw this, let's try loading a deepspeed checkpoint in a non-deepspeed way...")
+        
+# #         # Checkpoint.
+# #         checkpoint_name = get_checkpoint_name(args.load, iteration, release)
+
+# #         if mpu.get_data_parallel_rank() == 0:
+# #             print('global rank {} is loading checkpoint {}'.format(
+# #                 torch.distributed.get_rank(), checkpoint_name))
+
+# #         # Load the checkpoint.
+# #         sd = torch.load(checkpoint_name, map_location='cpu')
+
+# #         if isinstance(model, torchDDP):
+# #             model = model.module
+
+# #         # Model.
+# #         try:
+# #             model.load_state_dict(sd['model'])
+# #         except KeyError:
+# #             print_rank_0('A metadata file exists but unable to load model '
+# #                          'from checkpoint {}, exiting'.format(checkpoint_name))
+# #             exit()
+
+# #         # Optimizer.
+# #         if not release and not args.finetune and not args.no_load_optim:
+# #             try:
+# #                 if optimizer is not None:
+# #                     optimizer.load_state_dict(sd['optimizer'])
+# #                 if lr_scheduler is not None:
+# #                     lr_scheduler.load_state_dict(sd['lr_scheduler'])
+# #             except KeyError:
+# #                 print_rank_0('Unable to load optimizer from checkpoint {}, exiting. '
+# #                              'Specify --no-load-optim or --finetune to prevent '
+# #                              'attempting to load the optimizer '
+# #                              'state.'.format(checkpoint_name))
+# #                 exit()
+
+# #     # Iterations.
+# #     if args.finetune or release:
+# #         iteration = 0
+# #     else:
+# #         try:
+# #             iteration = sd['iteration']
+# #         except KeyError:
+# #             try:  # Backward compatible with older checkpoints
+# #                 iteration = sd['total_iters']
+# #             except KeyError:
+# #                 print_rank_0('A metadata file exists but Unable to load iteration '
+# #                              ' from checkpoint {}, exiting'.format(checkpoint_name))
+# #                 exit()
+
+# #     # rng states.
+# #     if not release and not args.finetune and not args.no_load_rng:
+# #         try:
+# #             random.setstate(sd['random_rng_state'])
+# #             np.random.set_state(sd['np_rng_state'])
+# #             torch.set_rng_state(sd['torch_rng_state'])
+# #             torch.cuda.set_rng_state(sd['cuda_rng_state'])
+# #             mpu.get_cuda_rng_tracker().set_states(sd['rng_tracker_states'])
+# #         except KeyError:
+# #             print_rank_0('Unable to load optimizer from checkpoint {}, exiting. '
+# #                          'Specify --no-load-optim or --finetune to prevent '
+# #                          'attempting to load the optimizer '
+# #                          'state.'.format(checkpoint_name))
+# #             exit()
+
+# #     torch.distributed.barrier()
+# #     if mpu.get_data_parallel_rank() == 0:
+# #         print('  successfully loaded {}'.format(checkpoint_name))
+
+# #     return iteration
+
+
 def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
     """
     Loads weights from src to dst via in place copy.
@@ -416,10 +651,8 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
     dst2src=True loads parameters from our models into huggingface's.
     ^dst2src is still untested
     """
-    print (f"Loading weights from {src} \n>>>>>>>>>>>>>>>>\n  to \n>>>>>>>>>>>>>>>>\n  {dst}")
-
     conv_layer = 'Conv1D' in str(type(src))
-    for n, p in tqdm(src.named_parameters()):
+    for n, p in src.named_parameters():
         if dst2src:
             data = dst._parameters[n].data
             load = p.data
@@ -428,16 +661,10 @@ def load_weights(src, dst, dst2src=False, double_pos_embeddings=False):
                 print('Double pos embeddings')
                 mid = p.size(0) // 2
                 p[mid:, :] = p[:mid, :]  # copy first half of position embedings to last
-            print (f"loading weights for {n}")
             data = p.data
-            print (f"load_weights has data of shape {data.shape}")
             load = dst._parameters[n].data
-            print (f"load_weights has load of shape {load.shape}")
         if conv_layer and 'weight' in n:
-            print ("Dealing with conv_layer with weights")
             data = data.t().contiguous()
-            print (f"load_weights has contiguous data of shape {data.shape}")
-        print ("load_weights is loading data to load via copy_ ...")
         load.copy_(data)
 
 
@@ -469,7 +696,6 @@ def move_weights(our, oai, dst2src=False, double_pos_embeddings=False):
     """
     #    while isinstance(our, (torchDDP, model.distributed.DistributedDataParallel, FP16_Module)):
     #        our=our.module
-    print (f"Moving weights from {oai} to {our}")
     transformer_model = oai.transformer
     load_weights(transformer_model.ln_f, our.transformer.final_layernorm, dst2src)
     load_weights(transformer_model.wte, our.word_embeddings, dst2src)
@@ -480,10 +706,6 @@ def move_weights(our, oai, dst2src=False, double_pos_embeddings=False):
 
 
 def load_huggingface_model(model, path, double_pos_embeddings):
-    print (f"load_huggingface_model has received model {model}, \
-        path {path}, \
-        and double_pos_embeddings {double_pos_embeddings}")
-    
     from transformers import GPT2LMHeadModel
     print('Load huggingface model from', path, ('with pos emb doubling' if double_pos_embeddings else ''))
     model2fill = model
@@ -496,10 +718,9 @@ def load_huggingface_model(model, path, double_pos_embeddings):
         model2fill.load_state_dict(checkpoint)
     else:
         h_model = GPT2LMHeadModel.from_pretrained(path)
-        print ("moving weights...")
         move_weights(model2fill, h_model, double_pos_embeddings)
 
-    print('Loaded huggingface model ', type(model))
+    print('Loaded huggingface model', type(model))
     return model
 
 
@@ -521,7 +742,6 @@ def export_to_huggingface_model(model, path):
 
 
 def get_deepspeed_config(args):
-    print (f"get_deepspeed_config has received args {args}")
     if hasattr(args, 'deepspeed_config') and args.deepspeed_config:
         from deepspeed import DeepSpeedConfig
         return DeepSpeedConfig(args.deepspeed_config)
@@ -530,7 +750,6 @@ def get_deepspeed_config(args):
 
 
 def get_sparse_attention_config(args, num_heads):
-    print (f"get_sparse_attention_config has received args {args} and num_heads {num_heads}")
     ds_config = get_deepspeed_config(args)
     if hasattr(ds_config, 'sparse_attention') and ds_config.sparse_attention:
         sa_config = ds_config.sparse_attention

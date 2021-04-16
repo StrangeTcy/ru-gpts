@@ -261,13 +261,8 @@ class GPT3ParallelTransformerLayer(torch.nn.Module):
                  layernorm_epsilon,
                  init_method,
                  output_layer_init_method=None,
-                 use_deepspeed_sparse=None,
-                 DEBUG=False):
+                 use_deepspeed_sparse=None):
         super(GPT3ParallelTransformerLayer, self).__init__()
-        
-        if DEBUG:
-            print ("GPT3ParallelTransformerLayer.__init__ was called")
-        
         # Set output layer initialization if not provided.
         if output_layer_init_method is None:
             output_layer_init_method = init_method
@@ -296,43 +291,22 @@ class GPT3ParallelTransformerLayer(torch.nn.Module):
             init_method,
             output_layer_init_method=output_layer_init_method)
 
-    def forward(self, hidden_states, ltor_mask, DEBUG=False):
+    def forward(self, hidden_states, ltor_mask):
         # hidden_states: [b, s, h]
         # ltor_mask: [1, 1, s, s]
-        
-        if DEBUG:
-                print (f"GPT3ParallelTransformerLayer.forward was called with hidden_states {hidden_states} \n and ltor_mask {ltor_mask}")
 
         # Layer norm at the begining of the transformer layer.
-        if DEBUG:
-                print ("Applying layer norm...")
         layernorm_output = self.input_layernorm(hidden_states)
-        if DEBUG:
-                print (f"Now layernorm_output = {layernorm_output}")
         # Self attention.
-        if DEBUG:
-                print ("Applying self-attention")
         attention_output = self.attention(layernorm_output, ltor_mask)
-        if DEBUG:
-                print (f"Now attention_output = {attention_output}")
         # Residual connection.
         layernorm_input = hidden_states + attention_output
         # Layer norm post the self attention.
-        if DEBUG:
-                print ("Layer norm post the self attention")
         layernorm_output = self.post_attention_layernorm(layernorm_input)
-        if DEBUG:
-                print (f"Now, post self-attention, layernorm_output is {layernorm_output}")
         # MLP.
-        if DEBUG:
-                print ("MLP")
         mlp_output = self.mlp(layernorm_output)
-        if DEBUG:
-                print (f"Now mlp_output is {mlp_output}")
         # Second residual connection.
         output = layernorm_input + mlp_output
-        if DEBUG:
-            print (f"Now second residual connection is {output}")
 
         return output
 
@@ -359,7 +333,7 @@ def scaled_init_method(sigma, num_layers):
 class GPT3ParallelTransformer(torch.nn.Module):
     """GPT-3 transformer.
 
-    This module takes input from embedding layer and its output can
+    This module takes input from embedding layer and it's output can
     be used directly by a logit layer. It consists of L (num-layers)
     blocks of:
         layer norm
@@ -381,7 +355,7 @@ class GPT3ParallelTransformer(torch.nn.Module):
                              after self attention and final output.
         checkpoint_activations: if True, checkpoint activations.
         checkpoint_num_layers: number of layers to checkpoint. This
-                               is basically the chunk size in checkpointing.
+                               is basically the chunk size in checkpoitning.
         layernorm_epsilon: epsilon used in layernorm to avoid
                            division by zero.
         init_method_std: standard deviation of the init method which has
@@ -438,7 +412,6 @@ class GPT3ParallelTransformer(torch.nn.Module):
                 use_deepspeed_sparse=sparsity_config)
 
         # Transformer layers.
-        print ("Getting GPT3ParallelTransformerLayers...")
         self.layers = torch.nn.ModuleList(
             [get_layer(i, num_layers) for i in range(num_layers)])
 
@@ -464,7 +437,6 @@ class GPT3ParallelTransformer(torch.nn.Module):
             return custom_forward
 
         if self.checkpoint_activations:
-            print ("we had checkpoint_activations")
             l = 0
             num_layers = len(self.layers)
             chunk_length = self.checkpoint_num_layers
@@ -473,13 +445,10 @@ class GPT3ParallelTransformer(torch.nn.Module):
                                            hidden_states, attention_mask)
                 l += chunk_length
         else:
-            print ("We did NOT have checkpoint activations")
             for layer in self.layers:
                 hidden_states = layer(hidden_states, attention_mask)
 
         # Final layer norm.
-        print ("Applying final layer norm...")
         output = self.final_layernorm(hidden_states)
-        print (f"And now, in GPT3ParallelTransformer, our output is {output}")
 
         return output

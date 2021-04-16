@@ -70,7 +70,6 @@ class GPT3Model(torch.nn.Module):
         init_method = init_method_normal(std=0.02)
 
         # Word embeddings (parallel).
-        print (f"in GPT3Model.__init__ we're making a VocabParallelEmbedding with vocab_size {vocab_size} and hidden_size {hidden_size}")
         self.word_embeddings = mpu.VocabParallelEmbedding(
             vocab_size, hidden_size, init_method=init_method)
 
@@ -95,47 +94,29 @@ class GPT3Model(torch.nn.Module):
                                                        sparse_mode=sparse_mode)
 
     def forward(self, input_ids, position_ids, attention_mask):
-        
-        print ("model was called, which means that model.forward was called")
-        print (f"with input_ids {input_ids}, \n position_ids {position_ids} \n and attention_mask {attention_mask}")
 
         # Embeddings.
         # print('input ids tensor', input_ids.size(), input_ids[0,:2])
-        print ("Getting word_embeddings from input_ids")
         words_embeddings = self.word_embeddings(input_ids)
-        print ("Getting position embeddings from position_ids")
         position_embeddings = self.position_embeddings(position_ids)
-        print ("Summing them up...")
         embeddings = words_embeddings + position_embeddings
 
         # Dropout.
-        print ("Applying dropout")
         embeddings = self.embedding_dropout(embeddings)
 
         # Transformer.
-        print ("Getting transformer outputs")
         transformer_output = self.transformer(embeddings, attention_mask)
-        print (f"And now our transformer_output is {transformer_output}")
 
         # Parallel logits.
-        print ("Magic: copying to model parallel region")
         transformer_output_parallel = mpu.copy_to_model_parallel_region(
             transformer_output)
-        if torch.isnan(transformer_output_parallel).any():
-            print ("Oh my God, a nan in my output? No way!")
-        print (f"And now we have transformer_output_parallel {transformer_output_parallel}")
-        print ("Sending to a linear layer...")
         logits_parallel = F.linear(transformer_output_parallel,
                                    self.word_embeddings.weight)
-        print (f"And now we have logits_parallel {logits_parallel}")
 
         if self.parallel_output:
-            print ("parallel_output was true, returning logits_parallel")
             return logits_parallel
 
-        gathered_logits =  mpu.gather_from_model_parallel_region(logits_parallel)
-        print (f"returning gathered_logits {gathered_logits}")
-        return gathered_logits
+        return mpu.gather_from_model_parallel_region(logits_parallel)
 
 
 def gpt3_get_params_for_weight_decay_optimization(module):

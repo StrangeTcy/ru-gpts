@@ -62,7 +62,6 @@ class ResumableBatchSampler(BatchSampler):
 
 def make_gpt3_dataloaders(args):
     # Data parallel arguments
-    print (f"make_gpt3_dataloaders has received args {args}")
     world_size = mpu.get_data_parallel_world_size()
     rank = mpu.get_data_parallel_rank()
     # global_batch_size = args.batch_size * world_size
@@ -79,7 +78,7 @@ def make_gpt3_dataloaders(args):
 
     train_dataset_args = RuGpt3DatasetArguments(
         block_size=args.seq_length, max_files_load=args.max_files_per_process, overwrite_cache=args.overwrite_cache,
-        tqdm=True)
+        tqdm=False)
     eval_dataset_args = RuGpt3DatasetArguments(
         block_size=args.seq_length, max_files_load=args.max_files_per_process, overwrite_cache=args.overwrite_cache,
         tqdm=True)
@@ -95,25 +94,19 @@ def make_gpt3_dataloaders(args):
             # cache_prefix=args.cache_prefix
         )
         # Use a simple sampler with distributed batch sampler.
-        print ("making samplers...")
         sampler = torch.utils.data.SequentialSampler(dataset)
         batch_sampler = ResumableBatchSampler(sampler=sampler,
                                               batch_size=args.batch_size,
                                               drop_last=True)
 
-        print ("Creating and returning an InfiniteDataLoader...")
         return InfiniteDataLoader(dataset, batch_sampler=batch_sampler, num_workers=num_workers, pin_memory=True)
 
-    print ("Making train data_loader...")    
     train = make_data_loader_(args.train_data_path, train_dataset_args) if args.train_data_path else None
-    print ("Making valid data_loader...")   
     valid = make_data_loader_(args.val_data_path, eval_dataset_args) if args.val_data_path else None
-    print ("Making test data_loader...")   
     test = make_data_loader_(args.test_data_path, eval_dataset_args) if args.test_data_path else None
 
     args.do_train = train is not None
     args.do_valid = valid is not None
     args.do_test = test is not None
 
-    print ("Returning data_loaders...")
     return (train, valid, test), num_tokens, eod_token, tokenizer

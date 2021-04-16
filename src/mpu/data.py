@@ -83,12 +83,8 @@ def broadcast_data(keys, data, datatype):
         datatype: torch data type of all tensors in data associated
                   with keys.
     """
-    
-    print (f"mpu.broadcast_data was called with keys {keys}, \n data {data} \n and datatype {datatype}")
-    
     # Build (key, size) and (key, number of elements) dictionaries along
     # with the total number of elements on all ranks.
-    print ("building dicts...")
     key_size, key_numel, total_numel = _build_key_size_numel_dictionaries(keys,
                                                                           data)
 
@@ -104,13 +100,11 @@ def broadcast_data(keys, data, datatype):
                                    device=torch.cuda.current_device(),
                                    dtype=datatype)
 
-    # Broadcast
-    print ("Broadcasting...")
+    # Boradcast
     torch.distributed.broadcast(flatten_data, get_model_parallel_src_rank(),
                                 group=get_model_parallel_group())
 
     # Unpack
-    print ("Unpacking...")
     output = {}
     offset = 0
     for key in keys:
